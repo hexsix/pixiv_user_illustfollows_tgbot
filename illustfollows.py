@@ -73,7 +73,7 @@ async def download() -> Dict:
                     r = await client.get(rss_url, timeout=10.0)
             rss_json = feedparser.parse(r.text)
         except:
-            logger.warning('Failed to download RSS, the next attempt will start in 2 seconds.')
+            logger.warning('Failed to download RSS, the next attempt will start in 6 seconds.')
             await asyncio.sleep(6)
         else:
             break
@@ -128,7 +128,8 @@ async def send(json_serialized: str) -> bool:
         'chat_id': config['chat_id'],
         'media': json_serialized
     }
-    for _ in range(3):
+    for retry in range(3):
+        logger.info(f'The {retry + 1}th attempt, 3 attempts in total.')
         try:
             if config['use_proxies']:
                 async with httpx.AsyncClient(proxies=config['proxies']) as client:
@@ -136,21 +137,21 @@ async def send(json_serialized: str) -> bool:
             else:
                 async with httpx.AsyncClient() as client:
                     r = await client.post(target, params=params)
+            logger.info(f'Telegram api returns {r.json()}')
             if r.json()['ok']:
                 logger.info(f'Succeed to send.')
                 return True
             elif r.json()['error_code'] == 429:
-                # Too Many Requests: retry after 30s
-                logger.info(f'Too Many Requests')
+                logger.info(f'Too many requests, the next attempt will start in 30 seconds.')
                 await asyncio.sleep(31)
             else:
-                if _ == 0:
-                    logger.info(f'Bad response call telegram api {r.json()}')
-                    logger.debug(f'json_serialized: {json_serialized}')
+                logger.warning('Failed to send, the next attempt will start in 6 seconds.')
                 await asyncio.sleep(6)
         except Exception as e:
+            logger.warning('Failed to send, the next attempt will start in 6 seconds.')
             await asyncio.sleep(6)
-    logger.error(f'Failed to send.')
+    logger.error('Failed to send.')
+    logger.debug(f'json_serialized: {json_serialized}')
     return False
 
 
@@ -171,6 +172,6 @@ async def main():
 
 if __name__ == '__main__':
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(main, 'cron', hour='*', minute=0)
+    scheduler.add_job(main, 'cron', hour='*', minute=55)
     scheduler.start()
     asyncio.get_event_loop().run_forever()
