@@ -10,4 +10,4 @@
 
 ## WARNING
 
-Only for self-hosted
+Only for self-hosted RSSHub

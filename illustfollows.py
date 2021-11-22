@@ -1,26 +1,32 @@
+#!/usr/bin/env python
+# -*- coding:utf-8 -*-
+
+"""
+------------------------------------
+# @FileName    :illustfollows.py
+# @Time        :2021/11/21
+# @Author      :hexsix
+# @description :
+------------------------------------
+"""
+
 import asyncio
-from io import BytesIO
 import json
 import os
 import pickle
 import re
-import ssl
-import time
-import datetime
+from typing import Dict, List, Any
 import traceback
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import feedparser
 import httpx
-from PIL import Image
+
+from log_handler import logger
+
 
 config = json.load(open('config.json', 'r', encoding='utf8'))
-ssl_context = httpx.create_ssl_context()
-ssl_context.options ^= ssl.OP_NO_TLSv1  # Enable TLS 1.0 back
-
-
-def now():
-    return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+rss_url = config['rss_url']
 
 
 class Pickle:
@@ -40,163 +46,130 @@ class Pickle:
             self.already_sent = set()
 
     def dump(self):
-        self.clear()
+        self.minimize()
         pickle.dump(self.already_sent, open(self.filepath, 'wb'))
 
     def add(self, item):
         self.already_sent.add(item)
 
-    def clear(self):
+    def minimize(self):
         pass
 
 
 already_sent = Pickle()
 
 
-class Illustration:
-    pid: str
-    url: str
-    filename: str
-
-    def __init__(self, url: str):
-        print(url)
-        self.pid = url.split('/')[-1].split('.')[0]
-        self.url = url
-        if config['use_proxies']:
-            with httpx.Client(proxies=config['proxies']) as client:
-                response = client.get(self.url, timeout=100.0)
-        else:
-            with httpx.Client() as client:
-                response = client.get(self.url, timeout=100.0)
-        image = Image.open(BytesIO(response.content))
-        image.thumbnail((4000, 4000))
-        self.filename = f'{self.pid}.thumbnail'
-        image.save(self.filename, 'JPEG')
-
-    def delete(self):
-        os.remove(self.filename)
-
-
-class Rss:
-    rss_url: str
-    target: str
-
-    def __init__(self):
-        self.rss_url = config['rss_url']
-        self.target = f"https://api.telegram.org/bot{config['bot_token']}" \
-                      f"/sendMediaGroup?chat_id={config['chat_id']}"
-
-    def log(self, text):
-        print(f'{now()} {text}')
-
-    async def _send(self, photos, caption):
-        if not photos:
-            return
-        illus = []
-        for photo in photos:
-            try:
-                illus.append(Illustration(photo))
-            except Exception as e:
-                self.log(traceback.format_exc())
-                self.log(e)
-                continue
-        files = {}
-        for i, illu in enumerate(illus):
-            files[f'illu-{i}'] = open(illu.filename, 'rb')
-        json_serialized = json.dumps([{
-                'type': 'photo',
-                'media': f'attach://illu-{i}',
-                'caption': caption
-            } for i in range(len(illus))], ensure_ascii=False)
-        for _ in range(3):
-            try:
-                if config['use_proxies']:
-                    async with httpx.AsyncClient(proxies=config['proxies']) as client:
-                        r = await client.post(f'{self.target}&media={json_serialized}', files=files)
-                else:
-                    async with httpx.AsyncClient() as client:
-                        r = await client.post(f'{self.target}&media={json_serialized}', files=files)
-                if r.json()['ok']:
-                    return True
-                else:
-                    self.log(r.json())
-            except Exception as e:
-                self.log(traceback.format_exc())
-                self.log(e)
-                await asyncio.sleep(2)
-        self.log(f'[WARNING]: Failed to Send {photos}')
-        return False
-
-    async def run(self):
-        self.log(f'[INFO]: Crontab Start ...')
-        # download rss
-        self.log(f'[INFO]: Downloading RSS ...')
-        rss_json = None
-        for _ in range(3):
-            self.log(f'[INFO]: The {_ + 1}th attempt, 3 attempts in total.')
-            try:
-                if config['use_proxies']:
-                    async with httpx.AsyncClient(proxies=config['proxies']) as client:
-                        r = await client.get(self.rss_url, timeout=10.0)
-                else:
-                    async with httpx.AsyncClient() as client:
-                        r = await client.get(self.rss_url, timeout=10.0)
-                rss_json = feedparser.parse(r.text)
-            except:
-                self.log(f'[WARNING]: Failed to download RSS, the next attempt will start in 2 seconds.')
-                await asyncio.sleep(2)
-            else:
-                break
-        if not rss_json:
-            self.log(f'[ERROR]: Failed to download RSS.')
-            return
-        self.log(f'[INFO]: Succeed to download RSS.')
-
+async def download() -> Dict:
+    logger.info('Downloading RSS ...')
+    rss_json = None
+    for retry in range(3):
+        logger.info(f'The {retry + 1}th attempt, 3 attempts in total.')
         try:
-            self.log(f'[INFO]: Loading already sent list ...')
-            already_sent.load()
+            if config['use_proxies']:
+                async with httpx.AsyncClient(proxies=config['proxies']) as client:
+                    r = await client.get(rss_url, timeout=10.0)
+            else:
+                async with httpx.AsyncClient() as client:
+                    r = await client.get(rss_url, timeout=10.0)
+            rss_json = feedparser.parse(r.text)
         except:
-            self.log(f'[ERROR]: Failed to load already sent list.')
+            logger.warning('Failed to download RSS, the next attempt will start in 2 seconds.')
+            await asyncio.sleep(6)
         else:
-            self.log(f'[INFO]: Succeed to load already sent list.')
+            break
+    if not rss_json:
+        logger.error('Failed to download RSS.')
+        return dict()
+    logger.info('Succeed to download RSS.')
+    return rss_json
 
-        # parse rss and send message
-        self.log(f'[INFO]: Now send images ...')
-        for entry in rss_json['entries']:
-            try:
-                title = entry['title']
-                link = entry['link']
-                author = entry['author']
-                pid = link.split('/')[-1]
-                summary = entry['summary']
-                photo_urls = re.findall(r'https://pixiv.cat/[^"]*', summary)
-                self.log(photo_urls)
-                if pid in already_sent:
-                    continue
-                if await self._send(photo_urls, f'title: {title}\nauthor: {author}\nlink: {link}'):
-                    already_sent.add(pid)
-                    already_sent.dump()
-                    self.log(f'[INFO]: Succeed to send {photo_urls}.')
-            except Exception as e:
-                self.log(traceback.format_exc())
-                self.log(e)
-                continue
-        self.log(f'[INFO]: End.')
+
+async def parse(rss_json: Dict) -> List[Dict[str, Any]]:
+    logger.info('Parsing RSS ...')
+    items = []
+    for entry in rss_json['entries']:
+        try:
+            item = dict()
+            item['title'] = entry['title']
+            item['link'] = entry['link']
+            item['author'] = entry['author']
+            item['summary'] = entry['summary']
+            item['pid'] = item['link'].split('/')[-1]
+            item['photo_urls'] = re.findall(r'https://i.pixiv.cat/[^"]*', item['summary'])
+            items.append(item)
+        except Exception as e:
+            continue
+    logger.info(f'Parse RSS End.')
+    return items
+
+
+def construct_json_serialized(item: Dict[str, Any]) -> str:
+    caption = f"title: {item['title']}\nauthor: {item['author']}\nlink: {item['link']}"
+    medias = []
+    for i in range(min(len(item['photo_urls']), 6)):
+        if i == 0:
+            medias.append({
+                'type': 'photo',
+                'media': item['photo_urls'][i],
+                'caption': caption
+            })
+        else:
+            medias.append({
+                'type': 'photo',
+                'media': item['photo_urls'][i]
+            })
+    json_serialized = json.dumps(medias, ensure_ascii=True)
+    return json_serialized
+
+
+async def send(json_serialized: str) -> bool:
+    target = f"https://api.telegram.org/bot{config['bot_token']}/sendMediaGroup"
+    params = {
+        'chat_id': config['chat_id'],
+        'media': json_serialized
+    }
+    for _ in range(3):
+        try:
+            if config['use_proxies']:
+                async with httpx.AsyncClient(proxies=config['proxies']) as client:
+                    r = await client.post(target, params=params)
+            else:
+                async with httpx.AsyncClient() as client:
+                    r = await client.post(target, params=params)
+            if r.json()['ok']:
+                logger.info(f'Succeed to send.')
+                return True
+            elif r.json()['error_code'] == 429:
+                # Too Many Requests: retry after 30s
+                logger.info(f'Too Many Requests')
+                await asyncio.sleep(31)
+            else:
+                if _ == 0:
+                    logger.info(f'Bad response call telegram api {r.json()}')
+                    logger.debug(f'json_serialized: {json_serialized}')
+                await asyncio.sleep(6)
+        except Exception as e:
+            await asyncio.sleep(6)
+    logger.error(f'Failed to send.')
+    return False
 
 
 async def main():
-    await Rss().run()
-
-
-def temp():
-    with httpx.Client(proxies=config['proxies']) as client:
-        r = client.get(config['rss_url'])
-        rss_json = feedparser.parse(r.text)
-        json.dump(rss_json, open('sample.json', 'w', encoding='utf8'), indent=4, ensure_ascii=False)
+    logger.info('============ Crontab start ============')
+    rss_json = await download()
+    items = await parse(rss_json)
+    already_sent.load()
+    for item in items:
+        if item['pid'] in already_sent:
+            continue
+        json_serialized = construct_json_serialized(item)
+        if await send(json_serialized):
+            already_sent.add(item['pid'])
+            already_sent.dump()
+    logger.info('============ Crontab end ============')
 
 
 if __name__ == '__main__':
-    _now = datetime.datetime.now()
     scheduler = AsyncIOScheduler()
     scheduler.add_job(main, 'cron', hour='*', minute=0)
     scheduler.start()
