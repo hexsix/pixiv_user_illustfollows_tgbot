@@ -1,4 +1,3 @@
 feedparser
 httpx
-APScheduler
-colorlog
+redis
