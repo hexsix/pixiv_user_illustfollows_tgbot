@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import sys
 import time
 from typing import Any, Dict, List
 
@@ -18,7 +19,7 @@ import redis
 
 REDIS = redis.from_url(os.environ['REDIS_URL'])
 logger = logging.getLogger('app')
-ch = logging.StreamHandler()
+ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
