@@ -84,7 +84,7 @@ def construct_json_serialized(item: Dict[str, Any]) -> str:
 
 
 def filter(item: Dict[str, Any]) -> bool:
-    if REDIS.exists(item['post_id']):
+    if REDIS.exists(item['pid']):
         return True
     return False
 
