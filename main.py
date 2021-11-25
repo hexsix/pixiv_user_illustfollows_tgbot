@@ -95,19 +95,15 @@ def send(pid: str, json_serialized: str) -> bool:
         'chat_id': os.environ['CHAT_ID'],
         'media': json_serialized
     }
-    for retry in range(3):
-        logger.info(f'The {retry + 1}th attempt, 3 attempts in total.')
-        try:
-            with httpx.Client() as client:
-                response = client.post(target, params=params)
-            logger.info(f'Telegram api returns {response.json()}')
-            if response.json()['ok']:
-                logger.info(f'Succeed to send {pid}.')
-                return True
-        except:
-            pass
-        logger.warning(f'Failed to send {pid}, the next attempt will start in 6 seconds.')
-        time.sleep(6)
+    try:
+        with httpx.Client() as client:
+            response = client.post(target, params=params)
+        logger.info(f'Telegram api returns {response.json()}')
+        if response.json()['ok']:
+            logger.info(f'Succeed to send {pid}.')
+            return True
+    except:
+        pass
     logger.error(f'Failed to send {pid}.')
     return False
 
