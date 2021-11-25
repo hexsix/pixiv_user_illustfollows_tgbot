@@ -5,10 +5,8 @@ description: 写给 heroku 云服务
 """
 
 import json
-import logging
 import os
 import re
-import sys
 import time
 from typing import Any, Dict, List
 
@@ -18,18 +16,12 @@ import redis
 
 
 REDIS = redis.from_url(os.environ['REDIS_URL'])
-logger = logging.getLogger('app')
-ch = logging.StreamHandler(sys.stdout)
-ch.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-ch.setFormatter(formatter)
-logger.addHandler(ch)
 
 
 def download() -> Any:
-    logger.info('Downloading RSS ...')
+    print('Downloading RSS ...')
     for retry in range(3):
-        logger.info(f'The {retry + 1}th attempt, 3 attempts in total.')
+        print(f'The {retry + 1}th attempt, 3 attempts in total.')
         try:
             with httpx.Client() as client:
                 response = client.get(os.environ['RSS_URL'], timeout=10.0)
@@ -37,16 +29,16 @@ def download() -> Any:
             if rss_json:
                 break
         except:
-            logger.warning('Failed to download RSS, the next attempt will start in 6 seconds.')
+            print('Failed to download RSS, the next attempt will start in 6 seconds.')
             time.sleep(6)
     if not rss_json:
         raise Exception('Failed to download RSS.')
-    logger.info('Succeed to download RSS.')
+    print('Succeed to download RSS.')
     return rss_json
 
 
 def parse(rss_json: Dict) -> List[Dict[str, Any]]:
-    logger.info('Parsing RSS ...')
+    print('Parsing RSS ...')
     items = []
     for entry in rss_json['entries']:
         try:
@@ -60,7 +52,7 @@ def parse(rss_json: Dict) -> List[Dict[str, Any]]:
             items.append(item)
         except:
             continue
-    logger.info(f"Parse RSS End. {len(items)}/{len(rss_json['entries'])} Succeed.")
+    print(f"Parse RSS End. {len(items)}/{len(rss_json['entries'])} Succeed.")
     return items
 
 
@@ -98,30 +90,30 @@ def send(pid: str, json_serialized: str) -> bool:
     try:
         with httpx.Client() as client:
             response = client.post(target, params=params)
-        logger.info(f'Telegram api returns {response.json()}')
+        print(f'Telegram api returns {response.json()}')
         if response.json()['ok']:
-            logger.info(f'Succeed to send {pid}.')
+            print(f'Succeed to send {pid}.')
             return True
     except:
         pass
-    logger.error(f'Failed to send {pid}.')
+    print(f'Failed to send {pid}.')
     return False
 
 
 def main():
-    logger.info('============ App Start ============')
+    print('============ App Start ============')
     rss_json = download()
     items = parse(rss_json)
     filtered_items = [item for item in items if not filter(item)]
-    logger.info(f'{len(filtered_items)}/{len(items)} Filter.')
+    print(f'{len(filtered_items)}/{len(items)} Filter.')
     count = 0
     for item in filtered_items:
         json_serialized = construct_json_serialized(item)
         if send(item['pid'], json_serialized):
             REDIS.set(item['pid'], 'sent', ex=2678400)  # expire after a month
             count += 1
-    logger.info(f'{count}/{len(filtered_items)} Succeed.')
-    logger.info('============ App End ============')
+    print(f'{count}/{len(filtered_items)} Succeed.')
+    print('============ App End ============')
 
 
 if __name__ == '__main__':
