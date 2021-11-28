@@ -100,6 +100,19 @@ def send(pid: str, json_serialized: str) -> bool:
     return False
 
 
+def redis_set(value: str) -> bool:
+    for retry in range(5):
+        print(f'The {retry + 1}th attempt to set redis, 3 attempts in total.')
+        try:
+            if REDIS.set(value, 'sent', ex=2678400):  # expire after a month
+                return True
+        except:
+            print('Failed to set redis, the next attempt will start in 6 seconds.')
+            time.sleep(6)
+    print(f'Failed to set redis, {value} may be sent twice.')
+    return False
+
+
 def main():
     print('============ App Start ============')
     rss_json = download()
@@ -110,7 +123,7 @@ def main():
     for item in filtered_items:
         json_serialized = construct_json_serialized(item)
         if send(item['pid'], json_serialized):
-            REDIS.set(item['pid'], 'sent', ex=2678400)  # expire after a month
+            redis_set(item['pid'])
             count += 1
     print(f'{count}/{len(filtered_items)} Succeed.')
     print('============ App End ============')
