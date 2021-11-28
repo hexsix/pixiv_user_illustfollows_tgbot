@@ -33,7 +33,7 @@ def download() -> Any:
             time.sleep(6)
     if not rss_json:
         raise Exception('Failed to download RSS.')
-    print('Succeed to download RSS.')
+    print('Succeed to download RSS.\n')
     return rss_json
 
 
@@ -50,9 +50,10 @@ def parse(rss_json: Dict) -> List[Dict[str, Any]]:
             item['pid'] = item['link'].split('/')[-1]
             item['photo_urls'] = re.findall(r'https://i.pixiv.cat/[^"]*', item['summary'])
             items.append(item)
-        except:
+        except Exception as e:
+            print(f'Exception: {e}')
             continue
-    print(f"Parse RSS End. {len(items)}/{len(rss_json['entries'])} Succeed.")
+    print(f"Parse RSS End. {len(items)}/{len(rss_json['entries'])} Succeed.\n")
     return items
 
 
@@ -82,6 +83,7 @@ def filter(item: Dict[str, Any]) -> bool:
 
 
 def send(pid: str, json_serialized: str) -> bool:
+    print(f'Send pid: {pid} ...')
     target = f"https://api.telegram.org/bot{os.environ['TG_TOKEN']}/sendMediaGroup"
     params = {
         'chat_id': os.environ['CHAT_ID'],
@@ -92,24 +94,26 @@ def send(pid: str, json_serialized: str) -> bool:
             response = client.post(target, params=params)
         print(f'Telegram api returns {response.json()}')
         if response.json()['ok']:
-            print(f'Succeed to send {pid}.')
+            print(f'Succeed to send {pid}.\n')
             return True
-    except:
+    except Exception as e:
+        print(f'Exception: {e}')
         pass
-    print(f'Failed to send {pid}.')
+    print(f'Failed to send {pid}.\n')
     return False
 
 
-def redis_set(value: str) -> bool:
+def redis_set(pid: str) -> bool:
     for retry in range(5):
-        print(f'The {retry + 1}th attempt to set redis, 3 attempts in total.')
+        print(f'The {retry + 1}th attempt to set redis, 5 attempts in total.')
         try:
-            if REDIS.set(value, 'sent', ex=2678400):  # expire after a month
+            if REDIS.set(pid, 'sent', ex=2678400):  # expire after a month
+                print(f'Succeed to set redis {pid}.\n')
                 return True
         except:
             print('Failed to set redis, the next attempt will start in 6 seconds.')
             time.sleep(6)
-    print(f'Failed to set redis, {value} may be sent twice.')
+    print(f'Failed to set redis, {pid} may be sent twice.\n')
     return False
 
 
@@ -118,7 +122,7 @@ def main():
     rss_json = download()
     items = parse(rss_json)
     filtered_items = [item for item in items if not filter(item)]
-    print(f'{len(filtered_items)}/{len(items)} Filter.')
+    print(f'{len(filtered_items)}/{len(items)} filtered by redis (already sent).\n')
     count = 0
     for item in filtered_items:
         json_serialized = construct_json_serialized(item)
