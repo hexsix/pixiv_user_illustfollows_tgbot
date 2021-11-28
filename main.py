@@ -92,10 +92,12 @@ def send(pid: str, json_serialized: str) -> bool:
     try:
         with httpx.Client() as client:
             response = client.post(target, params=params)
-        print(f'Telegram api returns {response.json()}')
         if response.json()['ok']:
             print(f'Succeed to send {pid}.\n')
             return True
+        else:
+            print(f'Telegram api returns {response.json()}')
+            print(f'json_serialized: {json_serialized}')
     except Exception as e:
         print(f'Exception: {e}')
         pass
