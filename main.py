@@ -115,6 +115,7 @@ def main():
         if send(item):
             redis_set(item['pid'])
             count += 1
+            time.sleep(10)
     print(f'{count}/{len(filtered_items)} Succeed.')
     print('============ App End ============')
 
